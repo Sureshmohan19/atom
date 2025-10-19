@@ -1,0 +1,16 @@
+# Python virtual environment
+.venv/
+.venv-old/
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+*.so
+*.pyd
+
+# macOS specific files
+.DS_Store
+
+# IDE configuration
+.vscode/
