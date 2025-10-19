@@ -1,72 +1,114 @@
-// The C-API bridge to expose the Atom library to Python.
+/*
+ * =====================================================================================
+ *
+ *       Filename:  atom_module.c
+ *
+ *    Description:  This file serves as the bridge between our pure C 'Atom' type
+ *                  library and the Python interpreter. It uses the Python C-API
+ *                  to create a new Python module named 'atom' and its related functions
+ *
+ * =====================================================================================
+ */
 
-// This macro is required for the modern Python C-API.
+// This macro is required on some platforms to ensure that Python's C-API
+// uses the correct, modern definitions for types like `Py_ssize_t`. It helps
+// maintain forward compatibility.
 #define PY_SSIZE_T_CLEAN
-#include <Python.h>
-#include "structmember.h"
+#include <Python.h>      // The main header for the Python C-API. It's our gateway to all Python functions and types.
+#include "structmember.h" // Required for the `PyMemberDef` and `PyGetSetDef` structures, which we use to expose C struct members as Python attributes.
 
-// ATOM C-library's header to access our types.
+// This is our own library. We include its public header to gain access to the
+// `Atom_DType` struct definitions and the `get_atom_dtype` C-API function.
 #include "atom_types.h"
 
-// --- 1. The Python `atom.dtype` Object Definition ---
+// =====================================================================================
+//  1. DEFINE THE PYTHON-VISIBLE `atom.dtype` OBJECT
+// =====================================================================================
 
-// This is the C struct that will represent our dtype object in Python.
-// It MUST start with PyObject_HEAD.
+/*
+ * This is the C struct that will be the in-memory representation of every
+ * `atom.dtype` object in Python. It acts as a lightweight Python wrapper
+ * around our pure C `Atom_DType` blueprint.
+ */
 typedef struct {
+    // This MUST be the first member of any C struct that represents a Python
+    // object. It contains the reference count and a pointer to the object's
+    // type, which are essential for Python's memory management and type system.
     PyObject_HEAD
-    // This will hold a pointer to our pure C Atom_DType struct.
+
+    // This is our custom payload. It's a pointer to the static, read-only
+    // `Atom_DType` struct (e.g., `g_atom_int8_dtype`) from our C library.
+    // This is how we link a specific Python object to its underlying C definition.
     const Atom_DType* dtype_c;
 } AtomDTypeObject;
 
-// --- NEW: FORWARD DECLARATION ---
-// Add this line. It tells the compiler that AtomDType_Type exists
-// before it is fully defined.
+/*
+ * This is a "forward declaration". It's a promise to the C compiler that a
+ * global variable named `AtomDType_Type` with the type `PyTypeObject` will be
+ * fully defined later in this file. This is necessary because some of our
+ * functions (like `atom_dtype_richcompare`) need to refer to `AtomDType_Type`
+ * before the compiler has seen its full definition.
+ */
 static PyTypeObject AtomDType_Type;
 
-// --- 1.5. NEW: The Representation Function for atom.dtype ---
 
-// This function is called when Python needs a string representation of our object.
-// It corresponds to the __repr__ method in Python.
+// =====================================================================================
+//  2. DEFINE THE BEHAVIORS (SLOTS) FOR THE `atom.dtype` TYPE
+// =====================================================================================
+
+/*
+ * Implements the `__str__` and `__repr__` behavior for our `atom.dtype` object.
+ * Python calls this function whenever it needs a user-friendly string
+ * representation of the object (e.g., for `print()`).
+ *
+ * `self`: A pointer to the specific `AtomDTypeObject` instance being printed.
+ * Returns: A new reference to a Python Unicode (string) object.
+ */
 static PyObject*
 atom_dtype_str(AtomDTypeObject *self)
 {
-    // self->dtype_c points to our pure C struct.
-    // We can access its 'name' field directly.
+    // A defensive check. If the internal C pointer is NULL, we should return
+    // a safe representation instead of crashing.
     if (self->dtype_c == NULL) {
         return PyUnicode_FromString("<atom.dtype NULL>");
     }
 
-    // PyUnicode_FromFormat is a C-API function like printf,
-    // but it creates a Python string object.
-    // Create a Python string from our C string 'name'.
+    // `PyUnicode_FromString` is a C-API function that takes a standard C
+    // null-terminated string and creates a new Python string object from it.
+    // We get the name directly from our linked C blueprint.
     return PyUnicode_FromString(self->dtype_c->name);
 }
 
-// --- 1.7. NEW: Getter/Setter Definitions for atom.dtype ---
+/*
+ * --- Getter Functions for Python Attributes ---
+ *
+ * The following group of functions implements the "getter" part of Python's
+ * attribute access. When you write `my_dtype.itemsize` in Python, the
+ * interpreter will call the C function associated with "itemsize"
+ * to get the value.
+ */
 
-// Getter function for the 'name' attribute.
 static PyObject*
 atom_dtype_get_name(AtomDTypeObject *self, void *closure) {
     return PyUnicode_FromString(self->dtype_c->name);
 }
 
-// Getter function for the 'elsize' attribute.
 static PyObject*
 atom_dtype_get_elsize(AtomDTypeObject *self, void *closure) {
+    // `PyLong_FromSize_t` correctly converts a C `size_t` into a Python integer object.
     return PyLong_FromSize_t(self->dtype_c->elsize);
 }
 
-// Getter function for the 'alignment' attribute.
 static PyObject*
 atom_dtype_get_alignment(AtomDTypeObject *self, void *closure) {
     return PyLong_FromSize_t(self->dtype_c->alignment);
 }
 
-// Getter function for 'kind', 'type_char', and 'byteorder' attributes.
+// This is a small helper to avoid writing the same code for all single-character attributes.
 static PyObject*
 atom_dtype_get_char_attr(const char* attr_name, char attr_val) {
-    // This is a small helper to avoid repetitive code.
     char str[1] = { attr_val };
+    // We create a Python string of length 1 from our C char.
     return PyUnicode_FromStringAndSize(str, 1);
 }
 
@@ -86,56 +128,62 @@ atom_dtype_get_byteorder(AtomDTypeObject *self, void *closure) {
 }
 
 /*
- * This array maps a Python attribute name to a C "getter" function.
- * Since we don't want to allow setting these attributes, the 'setter' is NULL.
+ * This is the "get/set" definition table. It maps Python attribute names to
+ * the C getter (and optionally setter) functions that should be called.
+ * It's an array of `PyGetSetDef` structs, terminated by a NULL entry.
  */
 static PyGetSetDef atom_dtype_getsetters[] = {
+    // Each entry defines one attribute.
     {
-        "name", // Attribute name in Python
-        (getter)atom_dtype_get_name, // The C function to call
-        NULL, // No setter function
-        "The common name of the data type (e.g., 'int32')", // Docstring
-        NULL // Closure data (not needed)
+        "name",                          // The name of the attribute in Python.
+        (getter)atom_dtype_get_name,     // A pointer to the C getter function.
+        NULL,                            // The setter function (NULL means it's read-only).
+        "The common name of the data type (e.g., 'int32')", // The attribute's docstring.
+        NULL                             // "closure" data, not needed here.
     },
-    {"itemsize", (getter)atom_dtype_get_elsize, NULL, "The size of the data type in bytes", NULL},
+    {"itemsize",  (getter)atom_dtype_get_elsize,    NULL, "The size of the data type in bytes", NULL},
     {"alignment", (getter)atom_dtype_get_alignment, NULL, "The required memory alignment", NULL},
-    {"kind", (getter)atom_dtype_get_kind, NULL, "A character for the general kind of the type", NULL},
-    {"type", (getter)atom_dtype_get_type_char, NULL, "A single character code for the type", NULL},
-    {"char", (getter)atom_dtype_get_type_char, NULL, "A single character code for the type (alias for 'type')", NULL},
+    {"kind",      (getter)atom_dtype_get_kind,      NULL, "A character for the general kind of the type", NULL},
+    {"type",      (getter)atom_dtype_get_type_char, NULL, "A single character code for the type", NULL},
+    {"char",      (getter)atom_dtype_get_type_char, NULL, "A single character code for the type (alias for 'type')", NULL},
     {"byteorder", (getter)atom_dtype_get_byteorder, NULL, "A character indicating the byte order", NULL},
 
-    // Sentinel marks the end of the array.
+    // This sentinel entry marks the end of the array and is mandatory.
     {NULL}
 };
 
 /*
- * This function is called when a user creates a new dtype instance from Python,
- * e.g., `atom.dtype('int32')`. It is the implementation of __new__.
+ * Implements the `__new__` method, which is the constructor for our type.
+ * Python calls this when a user writes `atom.dtype(...)`.
+ *
+ * `subtype`: A pointer to the type being created (in this case, `AtomDType_Type`).
+ * `args`: A Python tuple of the positional arguments.
+ * `kwds`: A Python dict of the keyword arguments (we don't use this yet).
+ * Returns: A new reference to an `AtomDTypeObject` instance.
  */
 static PyObject*
 atom_dtype_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 {
-    // We will only accept one positional argument, a string, for now.
-    // The "O" format code gets a single Python object.
     PyObject *obj;
+    // `PyArg_ParseTuple` is the standard way to parse arguments passed from Python.
+    // The "O" format code means "get one Python Object".
     if (!PyArg_ParseTuple(args, "O", &obj)) {
-        return NULL; // PyArg_ParseTuple sets the error.
+        return NULL; // `PyArg_ParseTuple` sets the Python error on failure.
     }
 
-    // Check if the passed object is a Python string.
+    // We only support creating dtypes from strings for now.
     if (!PyUnicode_Check(obj)) {
         PyErr_SetString(PyExc_TypeError, "dtype constructor expects a string");
         return NULL;
     }
 
-    // Convert the Python string to a C string.
+    // Convert the Python Unicode object into a C-style `const char*`.
     const char* dtype_name = PyUnicode_AsUTF8(obj);
     if (dtype_name == NULL) {
-        // PyUnicode_AsUTF8 sets an error on failure.
-        return NULL;
+        return NULL; // `PyUnicode_AsUTF8` sets the error on failure.
     }
 
-    // --- Find the matching C blueprint in our library ---
+    // --- Search our C library for a matching type ---
     const Atom_DType* found_dtype_c = NULL;
     for (Atom_DTypeID id = 0; id < ATOM_NTYPES; ++id) {
         const Atom_DType* dtype_c = get_atom_dtype(id);
@@ -145,197 +193,158 @@ atom_dtype_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
         }
     }
 
-    // If we didn't find a match, raise an error.
     if (found_dtype_c == NULL) {
+        // `PyErr_Format` is like `printf` but for setting Python exceptions.
         PyErr_Format(PyExc_TypeError, "'%s' is not a valid Atom data type", dtype_name);
         return NULL;
     }
 
-    // --- Create and return the new Python object ---
-
-    // Allocate a new Python object of our custom type.
+    // --- Create and return the new Python wrapper object ---
+    // `subtype->tp_alloc` is the standard way to allocate memory for a new Python object instance.
     AtomDTypeObject *self = (AtomDTypeObject *)subtype->tp_alloc(subtype, 0);
     if (self == NULL) {
-        return NULL;
+        return NULL; // `tp_alloc` sets a MemoryError if it fails.
     }
 
-    // Link our new Python object to the C blueprint we found.
-    self->dtype_c = found_dtype_c;
+    self->dtype_c = found_dtype_c; // Link the new Python object to the C blueprint.
 
     return (PyObject *)self;
 }
 
 /*
- * This function is called when two atom.dtype objects are compared,
- * e.g., `atom.int32 == atom.dtype('int32')`.
+ * Implements rich comparison logic (==, !=, <, >, etc.).
+ * Python calls this function for operations like `atom.int32 == atom.dtype('int32')`.
+ *
+ * `self`: The left-hand side of the comparison.
+ * `other`: The right-hand side of the comparison.
+ * `op`: An integer ID representing the operation (e.g., `Py_EQ` for `==`).
+ * Returns: `Py_True`, `Py_False`, or `Py_NotImplemented`.
  */
 static PyObject*
 atom_dtype_richcompare(AtomDTypeObject *self, PyObject *other, int op)
 {
-    // First, check if the 'other' object is also an atom.dtype.
-    // PyObject_TypeCheck is a safe way to check an object's type.
+    // We only know how to compare ourselves to other `atom.dtype` objects.
     if (!PyObject_TypeCheck(other, &AtomDType_Type)) {
-        // If it's not our type, we don't know how to compare it.
-        // Returning Py_NotImplemented allows Python to try other comparison methods.
+        // `Py_RETURN_NOTIMPLEMENTED` is a macro that returns the special
+        // `NotImplemented` singleton. This allows Python to try other ways
+        // to complete the comparison (e.g., asking `other` if it knows how).
         Py_RETURN_NOTIMPLEMENTED;
     }
 
-    // Cast the other object to our type so we can access its C struct.
     AtomDTypeObject *other_dtype = (AtomDTypeObject *)other;
 
-    // Get the underlying C pointers for both objects.
     const Atom_DType* self_c = self->dtype_c;
     const Atom_DType* other_c = other_dtype->dtype_c;
 
-    // Check for NULL pointers, just in case.
     if (self_c == NULL || other_c == NULL) {
         Py_RETURN_NOTIMPLEMENTED;
     }
 
-    // The core comparison logic: two dtypes are equal if their C pointers are the same.
-    // Since we have one canonical C struct for each type, this is a fast and
-    // reliable way to check for equality of meaning.
+    // The core logic: two dtypes are "equal" if they point to the exact same
+    // static C blueprint struct. This is a very fast and effective pointer comparison.
     int are_equal = (self_c == other_c);
 
-    // Now, handle the specific comparison operation requested by Python.
+    // `Py_EQ` means `==` and `Py_NE` means `!=`.
     switch (op) {
-        case Py_EQ: // For `==`
-            if (are_equal) Py_RETURN_TRUE;
-            else Py_RETURN_FALSE;
-        case Py_NE: // For `!=`
+        case Py_EQ:
+            if (are_equal) Py_RETURN_TRUE; // Macro for `Py_INCREF(Py_True); return Py_True;`
+            else Py_RETURN_FALSE;         // Macro for `Py_INCREF(Py_False); return Py_False;`
+        case Py_NE:
             if (!are_equal) Py_RETURN_TRUE;
             else Py_RETURN_FALSE;
         default:
-            // For any other comparison like <, >, etc., we don't support them.
+            // We don't define an ordering (<, >), so we can't handle other cases.
             Py_RETURN_NOTIMPLEMENTED;
     }
 }
 
-// --- 2. The Python `atom.dtype` Type Definition ---
 
-// This is the massive static struct that describes our new type to Python.
-// It tells Python the type's name, size, and what functions to call for
-// basic operations like printing or getting attributes.
+// =====================================================================================
+//  3. DEFINE THE `atom.dtype` TYPE OBJECT
+// =====================================================================================
+
+/*
+ * This is the master definition of our new Python type. It's a large, static
+ * struct where we "plug in" all the behavior functions we wrote above into
+ * specific "slots" that the Python interpreter understands.
+ */
 static PyTypeObject AtomDType_Type = {
-    
-    // Basic object setup
+    // This macro initializes the header fields required for all Python objects.
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "atom.dtype",              
-    .tp_basicsize = sizeof(AtomDTypeObject), 
-    .tp_itemsize = 0,
-    .tp_repr = (reprfunc)atom_dtype_str,
-    .tp_str  = (reprfunc)atom_dtype_str, 
-    
-    // Use the get/set slot to link our attribute functions.
-    .tp_getset = atom_dtype_getsetters,
+    .tp_name = "atom.dtype",                // The full name of the type, as seen in Python.
+    .tp_basicsize = sizeof(AtomDTypeObject),// The size in bytes of our C wrapper struct.
+    .tp_itemsize = 0,                       // For variable-sized objects (not us).
 
-    // Add this line to set our constructor function.
-    .tp_new = atom_dtype_new,
+    // --- Behavior Slots ---
+    .tp_repr = (reprfunc)atom_dtype_str,    // Function to call for `repr()`.
+    .tp_str  = (reprfunc)atom_dtype_str,    // Function to call for `str()` and `print()`.
+    .tp_getset = atom_dtype_getsetters,     // The table of our attribute getters.
+    .tp_new = atom_dtype_new,               // The constructor function.
+    .tp_richcompare = (richcmpfunc)atom_dtype_richcompare, // The comparison function.
 
-    // Add this line to set our comparison function.
-    .tp_richcompare = (richcmpfunc)atom_dtype_richcompare,
-
-
+    // --- Flags ---
+    // `Py_TPFLAGS_DEFAULT` is a standard set of flags for a well-behaved type.
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "An Atom data type object.",
+    .tp_doc = "An Atom data type object.",  // The docstring for the type.
 };
 
 
-// --- 3. The Python Module Definition ---
+// =====================================================================================
+//  4. DEFINE THE `atom` MODULE AND ITS INITIALIZATION
+// =====================================================================================
 
-// This struct defines the module itself. For now, it's simple: it just has a name.
-static struct PyModuleDef atom_module = {
+/*
+ * This struct provides the metadata for the Python module itself.
+ */
+static struct PyModuleDef atom_module_definition = {
     PyModuleDef_HEAD_INIT,
-    "atom", // Module name in Python
-    "A library of fundamental data types built from scratch in C.", // Docstring
-    -1,     // No per-interpreter state
-    NULL,   // No functions in the module... yet
+    "atom",                                                        // The name of the module.
+    "A library of fundamental data types built from scratch in C.",// The module's docstring.
+    -1,                                                            // -1 means the module keeps no global state.
+    NULL,                                                          // A list of module-level functions (we have none yet).
 };
 
 /*
- * Helper function: Creates a Python AtomDTypeObject from a C Atom_DType blueprint
- * and adds it to the given module.
+ * This is the official entry point for the module. When a user in Python
+ * executes `import atom`, the Python interpreter searches for and calls this
+ * specific function. Its name *must* be `PyInit_<module_name>`.
  *
- * Returns 0 on success, -1 on failure.
+ * Its job is to build and return a fully initialized module object.
  */
-static int
-add_dtype_to_module(PyObject *module, const Atom_DType *dtype_c)
-{
-    // Allocate a new Python object of our custom type (AtomDTypeObject).
-    AtomDTypeObject *dtype_py_obj = (AtomDTypeObject *)AtomDType_Type.tp_alloc(&AtomDType_Type, 0);
-    if (dtype_py_obj == NULL) {
-        return -1; // Allocation failed
-    }
-
-    // Link the new Python object to our existing C blueprint struct.
-    dtype_py_obj->dtype_c = dtype_c;
-
-    // Add the new Python object to the module dictionary.
-    // The name it gets in Python is taken directly from the C blueprint's 'name' field.
-    // PyModule_AddObject steals a reference to dtype_py_obj on success.
-    if (PyModule_AddObject(module, dtype_c->name, (PyObject *)dtype_py_obj) < 0) {
-        // If adding fails, we are responsible for decrementing the reference.
-        Py_DECREF(dtype_py_obj);
-        return -1;
-    }
-
-    return 0; // Success
-}
-
-
-// --- 4. The Module Initialization Function ---
-
-// This is the single most important function. Python calls this when you run `import atom`.
-// Its job is to create the module and populate it with our types.
 PyMODINIT_FUNC PyInit_atom(void) {
     PyObject *module;
 
-    // -- Finalize our custom `atom.dtype` type --
-    // This call is crucial. It prepares our PyTypeObject for use.
+    // This is a mandatory step. It takes our static `PyTypeObject` definition,
+    // fills in any missing details (like inheriting from `object`), and makes
+    // it ready for use.
     if (PyType_Ready(&AtomDType_Type) < 0) {
-        return NULL; // Failed to prepare the type
+        return NULL; // This would be a catastrophic failure.
     }
 
-    // -- Create the module object --
-    module = PyModule_Create(&atom_module);
+    // `PyModule_Create` takes our module definition and creates the module object.
+    module = PyModule_Create(&atom_module_definition);
     if (module == NULL) {
-        Py_DECREF(&AtomDType_Type); // Clean up the type on failure
+        Py_DECREF(&AtomDType_Type); // Clean up the type if module creation fails.
         return NULL;
     }
 
-    // Create the module object.
-    static struct PyModuleDef atom_module = {
-        PyModuleDef_HEAD_INIT,
-        "atom",
-        "A library of fundamental data types built from scratch in C.",
-        -1,
-        NULL,
-    };
-    module = PyModule_Create(&atom_module);
-    if (module == NULL) {
-        Py_DECREF(&AtomDType_Type);
-        return NULL;
-    }
-
-    // --- Add the `dtype` type object to the module ---
-    Py_INCREF(&AtomDType_Type); // We must increment the reference count before adding.
+    // --- Add the `dtype` type object itself to the module ---
+    // This allows users to call `atom.dtype(...)`.
+    Py_INCREF(&AtomDType_Type); // We must increment the ref count before giving it to the module.
     if (PyModule_AddObject(module, "dtype", (PyObject *)&AtomDType_Type) < 0) {
+        // If `PyModule_AddObject` fails, it does NOT steal the reference, so we must DECREF.
         Py_DECREF(&AtomDType_Type);
         Py_DECREF(module);
         return NULL;
     }
 
-    // --- Loop through all our C types and add them to the Python module ---
+    // --- Loop through all our C types and add pre-made instances to the module ---
     for (Atom_DTypeID id = 0; id < ATOM_NTYPES; ++id) {
-        // Use our C-API to get the blueprint for the current type ID.
         const Atom_DType* dtype_c = get_atom_dtype(id);
 
-        // If the C blueprint exists (i.e., it's not a deferred type),
-        // then add it to our Python module.
-        if (dtype_c != NULL) {
-            if (add_dtype_to_module(module, dtype_c) < 0) {
-                // If adding any single type fails, we must abort the entire
-                // module initialization.
+        if (dtype_c != NULL) { // If the C blueprint exists...
+            if (add_dtype_to_module(module, dtype_c) < 0) { // ...add it to the module.
+                // If adding any single type fails, we must abort initialization.
                 Py_DECREF(module);
                 Py_DECREF(&AtomDType_Type);
                 PyErr_SetString(PyExc_SystemError, "Failed to add a dtype to the atom module.");
@@ -344,6 +353,6 @@ PyMODINIT_FUNC PyInit_atom(void) {
         }
     }
 
-    // Success! Return the fully populated module.
+    // If we get here, the module is fully built and populated.
     return module;
 }
