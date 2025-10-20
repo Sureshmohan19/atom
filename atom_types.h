@@ -13,6 +13,10 @@
 #include <stddef.h> 
 #include <stdint.h> 
 
+// C has no native 16-bit float, so we use a 16-bit unsigned integer
+// to hold the raw bit pattern.
+typedef uint16_t atom_bfloat16_t;
+
 /*
  * A unique integer ID for every data type in the Atom library.
  * This provides a fast, machine-readable way to identify types.
@@ -69,6 +73,10 @@ typedef enum Atom_DTypeID {
      * ATOM_E4M3,     // 8-bit float with 4-bit exponent, 3-bit mantissa
      * ATOM_E5M2,     // 8-bit float with 5-bit exponent, 2-bit mantissa
      */
+
+    // --- Custom ML Types ---
+    // We are now defining our first custom type.
+    ATOM_BFLOAT16,
 
     // --- Sentinel ---
     // This value automatically tracks the number of defined types.

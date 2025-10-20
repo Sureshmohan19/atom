@@ -21,6 +21,9 @@
 // `Atom_DType` struct definitions and the `get_atom_dtype` C-API function.
 #include "atom_types.h"
 
+// For FLT_MAX, DBL_MAX, etc.
+#include <float.h> 
+
 // =====================================================================================
 //  1. DEFINE THE PYTHON-VISIBLE `atom.dtype` OBJECT
 // =====================================================================================
@@ -288,10 +291,196 @@ static PyTypeObject AtomDType_Type = {
     .tp_doc = "An Atom data type object.",  // The docstring for the type.
 };
 
+/*
+ * Helper function: Creates a Python AtomDTypeObject from a C Atom_DType blueprint
+ * and adds it to the given module.
+ *
+ * THIS FUNCTION MUST BE DEFINED BEFORE PyInit_atom, WHICH CALLS IT.
+ *
+ * Returns 0 on success, -1 on failure.
+ */
+static int
+add_dtype_to_module(PyObject *module, const Atom_DType *dtype_c)
+{
+    // Allocate a new Python object of our custom type (AtomDTypeObject).
+    AtomDTypeObject *dtype_py_obj = (AtomDTypeObject *)AtomDType_Type.tp_alloc(&AtomDType_Type, 0);
+    if (dtype_py_obj == NULL) {
+        return -1; // Allocation failed
+    }
+
+    // Link the new Python object to our existing C blueprint struct.
+    dtype_py_obj->dtype_c = dtype_c;
+
+    // Add the new Python object to the module dictionary.
+    // The name it gets in Python is taken directly from the C blueprint's 'name' field.
+    // PyModule_AddObject steals a reference to dtype_py_obj on success.
+    if (PyModule_AddObject(module, dtype_c->name, (PyObject *)dtype_py_obj) < 0) {
+        // If adding fails, we are responsible for decrementing the reference.
+        Py_DECREF(dtype_py_obj);
+        return -1;
+    }
+
+    return 0; // Success
+}
+
+// --- NEW: finfo Object and Type Definitions ---
+
+/*
+ * This is the C struct that will be the in-memory representation of an
+ * `atom.finfo` object in Python.
+ */
+typedef struct {
+    PyObject_HEAD
+    // We will store the properties as native C types.
+    int bits;
+    double eps;
+    double max;
+    double min;
+    int precision;
+    double resolution;
+} AtomFInfoObject;
+
+/*
+ * This defines the Python attributes for our `finfo` object. We use
+ * PyMemberDef for direct, fast access to the C struct members.
+ */
+static PyMemberDef atom_finfo_members[] = {
+    {"bits", T_INT, offsetof(AtomFInfoObject, bits), READONLY, "number of bits in the type"},
+    {"eps", T_DOUBLE, offsetof(AtomFInfoObject, eps), READONLY, "machine epsilon"},
+    {"max", T_DOUBLE, offsetof(AtomFInfoObject, max), READONLY, "largest representable number"},
+    {"min", T_DOUBLE, offsetof(AtomFInfoObject, min), READONLY, "smallest positive normalized number"},
+    {"precision", T_INT, offsetof(AtomFInfoObject, precision), READONLY, "approximate number of decimal digits of precision"},
+    {"resolution", T_DOUBLE, offsetof(AtomFInfoObject, resolution), READONLY, "approximate decimal resolution"},
+    {NULL} // Sentinel
+};
+
+/*
+ * This is the master definition of our new `atom.finfo` Python type.
+ */
+static PyTypeObject AtomFInfo_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "atom.finfo",
+    .tp_basicsize = sizeof(AtomFInfoObject),
+    .tp_itemsize = 0,
+    // We will implement a custom __repr__ for this later if needed.
+    .tp_members = atom_finfo_members,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "finfo(dtype) -> finfo object\n\nObject containing floating point type information.",
+};
+
+// --- NEW: Implementation of the atom.finfo() function ---
+
+/*
+ * This is the C function that gets executed when a user calls `atom.finfo()`.
+ */
+static PyObject*
+atom_module_finfo(PyObject *self, PyObject *args)
+{
+    PyObject* dtype_arg;
+
+    // Parse the single argument, which should be a dtype.
+    if (!PyArg_ParseTuple(args, "O", &dtype_arg)) {
+        return NULL;
+    }
+
+    // Check if the argument is one of our dtype objects.
+    if (!PyObject_TypeCheck(dtype_arg, &AtomDType_Type)) {
+        PyErr_SetString(PyExc_TypeError, "argument must be an atom.dtype");
+        return NULL;
+    }
+
+    AtomDTypeObject *dtype_obj = (AtomDTypeObject *)dtype_arg;
+    const Atom_DType* dtype_c = dtype_obj->dtype_c;
+
+    // --- Input Validation ---
+    // Check the 'kind' of the dtype. If it's not 'f' (float) or 'c' (complex) or 'V' (bfloat16),
+    // raise a helpful error.
+    if (dtype_c->kind != 'f' && dtype_c->kind != 'c' && dtype_c->kind != 'V') {
+        PyErr_SetString(PyExc_TypeError,
+            "finfo is only available for floating point and complex dtypes, try iinfo for integers.");
+        return NULL;
+    }
+
+    // --- Create and Populate the finfo Object ---
+    AtomFInfoObject *finfo_obj = (AtomFInfoObject *)AtomFInfo_Type.tp_alloc(&AtomFInfo_Type, 0);
+    if (finfo_obj == NULL) {
+        return NULL;
+    }
+
+    // Populate the finfo object based on the specific dtype.
+    switch (dtype_c->type_id) {
+        case ATOM_FLOAT32:
+            finfo_obj->bits = 32;
+            finfo_obj->eps = FLT_EPSILON;
+            finfo_obj->max = FLT_MAX;
+            finfo_obj->min = -FLT_MAX;
+            finfo_obj->precision = 6;
+            finfo_obj->resolution = 1e-6;
+            break;
+        case ATOM_FLOAT64:
+            finfo_obj->bits = 64;
+            finfo_obj->eps = DBL_EPSILON;
+            finfo_obj->max = DBL_MAX;
+            finfo_obj->min = -DBL_MAX;
+            finfo_obj->precision = 15;
+            finfo_obj->resolution = 1e-15;
+            break;
+        case ATOM_BFLOAT16: // Our custom type
+            finfo_obj->bits = 16;
+            finfo_obj->eps = 0.0078125; // 2**-7
+            finfo_obj->max = 3.389531e+38; // From bfloat16 spec
+            finfo_obj->min = -3.389531e+38;
+            finfo_obj->precision = 2;
+            finfo_obj->resolution = 1e-2;
+            break;
+        // For complex types, finfo returns info about the component float type.
+        case ATOM_CFLOAT64:
+            finfo_obj->bits = 32;
+            finfo_obj->eps = FLT_EPSILON;
+            finfo_obj->max = FLT_MAX;
+            finfo_obj->min = FLT_MIN;
+            finfo_obj->precision = 6;
+            finfo_obj->resolution = 1e-6;
+            break;
+        case ATOM_CFLOAT128:
+            finfo_obj->bits = 64;
+            finfo_obj->eps = DBL_EPSILON;
+            finfo_obj->max = DBL_MAX;
+            finfo_obj->min = DBL_MIN;
+            finfo_obj->precision = 15;
+            finfo_obj->resolution = 1e-15;
+            break;
+        // Add other float types like LONGDOUBLE here if needed.
+        default:
+            // This case should not be reached due to the 'kind' check above,
+            // but it is good practice to have a default.
+            Py_DECREF(finfo_obj);
+            PyErr_SetString(PyExc_TypeError, "finfo not available for this type.");
+            return NULL;
+    }
+
+    return (PyObject *)finfo_obj;
+}
 
 // =====================================================================================
 //  4. DEFINE THE `atom` MODULE AND ITS INITIALIZATION
 // =====================================================================================
+
+// --- NEW: Module-level functions ---
+
+/*
+ * This array defines the functions available at the module level,
+ * e.g., `atom.finfo()`.
+ */
+static PyMethodDef atom_module_methods[] = {
+    {
+        "finfo", // The name of the function in Python
+        atom_module_finfo, // A pointer to the C implementation
+        METH_VARARGS, // Indicates it takes positional arguments (a tuple)
+        "finfo(dtype) -> finfo object\n\nGet information about a floating point data type." // Docstring
+    },
+    {NULL, NULL, 0, NULL} // Sentinel
+};
 
 /*
  * This struct provides the metadata for the Python module itself.
@@ -301,7 +490,7 @@ static struct PyModuleDef atom_module_definition = {
     "atom",                                                        // The name of the module.
     "A library of fundamental data types built from scratch in C.",// The module's docstring.
     -1,                                                            // -1 means the module keeps no global state.
-    NULL,                                                          // A list of module-level functions (we have none yet).
+    atom_module_methods,
 };
 
 /*
@@ -319,6 +508,11 @@ PyMODINIT_FUNC PyInit_atom(void) {
     // it ready for use.
     if (PyType_Ready(&AtomDType_Type) < 0) {
         return NULL; // This would be a catastrophic failure.
+    }
+
+    // --- NEW: Finalize the `atom.finfo` type ---
+    if (PyType_Ready(&AtomFInfo_Type) < 0) {
+        return NULL;
     }
 
     // `PyModule_Create` takes our module definition and creates the module object.

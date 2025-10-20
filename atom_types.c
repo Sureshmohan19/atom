@@ -183,6 +183,24 @@ static const Atom_DType g_atom_cfloat128_dtype = {
     .name      = "cfloat128",
 };
 
+// --- Custom ML types ---
+
+// Custom bfloat16 floating-point type
+static const Atom_DType g_atom_bfloat16_dtype = {
+    .type_id   = ATOM_BFLOAT16,
+    .type_char = 'E',
+
+    // We use 'V' (Void/Vendor-defined) for the kind, following the ml_dtypes
+    // convention. This prevents a potential future conflict with a float16
+    // type, which would also have itemsize=2 and a kind of 'f'.
+    .kind      = 'V', 
+    
+    .byteorder = ATOM_BYTEORDER_NATIVE,
+    .elsize    = sizeof(atom_bfloat16_t),
+    .alignment = _Alignof(atom_bfloat16_t),
+    .name      = "bfloat16",
+};
+
 // --- 2. The Internal Type Registry ---
 
 // This array holds pointers to all the static type definitions.
@@ -210,6 +228,9 @@ static const Atom_DType* const g_atom_dtypes[ATOM_NTYPES] = {
     // Complex types
     [ATOM_CFLOAT64]   = &g_atom_cfloat64_dtype,
     [ATOM_CFLOAT128]  = &g_atom_cfloat128_dtype,
+
+    // Custom ML types
+    [ATOM_BFLOAT16] = &g_atom_bfloat16_dtype,
 };
 
 // --- 3. The Public API Implementation ---
