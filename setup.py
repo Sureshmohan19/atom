@@ -9,7 +9,7 @@ atom_module = Extension(
 
     # 2. The list of C source files to compile.
     #    We need our new "bindings" file and our existing "types" file.
-    sources=['atom_module.c', 'atom_types.c', 'atom_conversions.c'],
+    sources=['atom_module.c', 'atom_types.c', 'atom_conversions.c', 'dtype_object.c'],
 
     # 3. (Optional) List of directories to search for header files.
     #    Since our .h is in the same directory, we don't need this yet.
