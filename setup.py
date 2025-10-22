@@ -1,6 +1,7 @@
 # setup.py
 
 from setuptools import setup, Extension
+import numpy
 
 # This defines the C extension module we want to build.
 atom_module = Extension(
@@ -9,11 +10,17 @@ atom_module = Extension(
 
     # 2. The list of C source files to compile.
     #    We need our new "bindings" file and our existing "types" file.
-    sources=['atom_module.c', 'atom_types.c', 'atom_conversions.c', 'dtype_object.c'],
+    sources=[
+        'atom_module.c', 
+        'atom_types.c', 
+        'atom_conversions.c', 
+        'dtype_object.c',
+    ],
 
     # 3. (Optional) List of directories to search for header files.
-    #    Since our .h is in the same directory, we don't need this yet.
-    # include_dirs=[],
+    include_dirs=[
+        numpy.get_include(), 
+    ],
 )
 
 # This is the main function that tells setuptools how to build our project.

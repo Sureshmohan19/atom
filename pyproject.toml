@@ -1,0 +1,13 @@
+# This file tells the Python packaging tools about the project's
+# build system and its dependencies.
+
+[build-system]
+# We declare that our project needs 'setuptools' and 'numpy'
+# just to be BUILT. Pip will ensure these are installed in the
+# isolated build environment before running setup.py.
+requires = [
+    "setuptools",
+    "wheel",
+    "numpy"
+]
+build-backend = "setuptools.build_meta"
