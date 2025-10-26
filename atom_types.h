@@ -14,8 +14,9 @@
 #include <stdint.h> 
 
 // C has no native 16-bit float, so we use a 16-bit unsigned integer
-// to hold the raw bit pattern.
+// to hold the raw bit pattern for both float16 and bfloat16.
 typedef uint16_t atom_bfloat16_t;
+typedef uint16_t atom_float16_t;
 
 /*
  * A unique integer ID for every data type in the Atom library.
@@ -35,14 +36,7 @@ typedef enum Atom_DTypeID {
     ATOM_UINT64,
 
     // --- Standard Floating-Point Types ---
-    /*
-     * Deferred: ATOM_FLOAT16 is not a native C type. It requires a custom
-     * typedef (e.g., `typedef uint16_t atom_float16_t;`) to define its
-     * storage. We will handle it later with other non-native types.
-     *
-     * ATOM_FLOAT16,
-     */
-
+    ATOM_FLOAT16,
     ATOM_FLOAT32,    
     ATOM_FLOAT64,    
     ATOM_LONGDOUBLE,
@@ -101,7 +95,7 @@ typedef enum {
     ATOM_UINT64_CHAR = 'Q', 
 
     // --- Floating-Point Type Characters ---
-    // ATOM_FLOAT16_CHAR = 'e', is deferred   
+    ATOM_FLOAT16_CHAR = 'e',
     ATOM_FLOAT32_CHAR = 'f',    
     ATOM_FLOAT64_CHAR = 'd',    
     ATOM_LONGDOUBLE_CHAR = 'g', 

@@ -107,23 +107,15 @@ static const Atom_DType g_atom_uint64_dtype = {
 };
 
 // Float type
-// NOTE: C has no native float16_t. We define its properties here,
-// assuming a standard 16-bit layout for metadata purposes.
-
-/*
- * Deferred: ATOM_FLOAT16 is not a native C type. Its definition will be
- * added later when we handle custom types.
- *
 static const Atom_DType g_atom_float16_dtype = {
     .type_id   = ATOM_FLOAT16,
     .type_char = ATOM_FLOAT16_CHAR,
     .kind      = 'f',
     .byteorder = ATOM_BYTEORDER_NATIVE,
-    .elsize    = 2,
-    .alignment = 2,
+    .elsize    = sizeof(atom_float16_t),
+    .alignment = _Alignof(atom_float16_t),
     .name      = "float16",
 };
-*/
 
 // 32-bit floating-point (single-precision)
 static const Atom_DType g_atom_float32_dtype = {
@@ -220,7 +212,7 @@ static const Atom_DType* const g_atom_dtypes[ATOM_NTYPES] = {
     [ATOM_UINT64] = &g_atom_uint64_dtype,
 
     // Floating-point types
-    // ATOM_FLOAT16 is deferred.
+    [ATOM_FLOAT16]    = &g_atom_float16_dtype,
     [ATOM_FLOAT32]    = &g_atom_float32_dtype,
     [ATOM_FLOAT64]    = &g_atom_float64_dtype,
     [ATOM_LONGDOUBLE] = &g_atom_longdouble_dtype,

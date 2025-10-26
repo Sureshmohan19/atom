@@ -156,12 +156,36 @@ atom_module_finfo(PyObject *self, PyObject *args) {
     finfo_obj->dtype = dtype_arg;
     
     switch (dtype_c->type_id) {
+        case ATOM_FLOAT16:
+            finfo_obj->bits = 16;
+            finfo_obj->eps = 0.0009765625;      // 2**-10
+            finfo_obj->max = 65504.0;
+            finfo_obj->min = -65504.0;
+            finfo_obj->precision = 3;           // floor(10 * log10(2))
+            finfo_obj->resolution = 1e-3;
+            finfo_obj->nmant = 10;
+            finfo_obj->nexp = 5;
+            finfo_obj->minexp = -14;
+            finfo_obj->maxexp = 16;
+            finfo_obj->epsneg = 0.00048828125;  // 2**-11
+            finfo_obj->machep = -10;
+            finfo_obj->negep = -11;
+            finfo_obj->tiny = 6.1035156e-05;    // 2**-14
+            finfo_obj->smallest_normal = 6.1035156e-05;
+            finfo_obj->smallest_subnormal = 5.9604645e-08; // 2**-24
+            break;
         case ATOM_FLOAT32:
         case ATOM_CFLOAT64:
-            finfo_obj->bits = 32; finfo_obj->eps = FLT_EPSILON; finfo_obj->max = FLT_MAX;
-            finfo_obj->min = -FLT_MAX; finfo_obj->precision = 6; finfo_obj->resolution = 1e-6;
-            finfo_obj->nmant = 23; finfo_obj->nexp = 8;
-            finfo_obj->minexp = -126; finfo_obj->maxexp = 128;
+            finfo_obj->bits = 32; 
+            finfo_obj->eps = FLT_EPSILON; 
+            finfo_obj->max = FLT_MAX;
+            finfo_obj->min = -FLT_MAX; 
+            finfo_obj->precision = 6; 
+            finfo_obj->resolution = 1e-6;
+            finfo_obj->nmant = 23; 
+            finfo_obj->nexp = 8;
+            finfo_obj->minexp = -126; 
+            finfo_obj->maxexp = 128;
             finfo_obj->epsneg = FLT_EPSILON / 2.0;
             finfo_obj->machep = -23;
             finfo_obj->negep = -24;
@@ -171,10 +195,16 @@ atom_module_finfo(PyObject *self, PyObject *args) {
             break;
         case ATOM_FLOAT64:
         case ATOM_CFLOAT128:
-            finfo_obj->bits = 64; finfo_obj->eps = DBL_EPSILON; finfo_obj->max = DBL_MAX;
-            finfo_obj->min = -DBL_MAX; finfo_obj->precision = 15; finfo_obj->resolution = 1e-15;
-            finfo_obj->nmant = 52; finfo_obj->nexp = 11;
-            finfo_obj->minexp = -1022; finfo_obj->maxexp = 1024;
+            finfo_obj->bits = 64; 
+            finfo_obj->eps = DBL_EPSILON; 
+            finfo_obj->max = DBL_MAX;
+            finfo_obj->min = -DBL_MAX; 
+            finfo_obj->precision = 15; 
+            finfo_obj->resolution = 1e-15;
+            finfo_obj->nmant = 52; 
+            finfo_obj->nexp = 11;
+            finfo_obj->minexp = -1022; 
+            finfo_obj->maxexp = 1024;
              finfo_obj->epsneg = DBL_EPSILON / 2.0;
             finfo_obj->machep = -52;
             finfo_obj->negep = -53;
@@ -183,10 +213,16 @@ atom_module_finfo(PyObject *self, PyObject *args) {
             finfo_obj->smallest_subnormal = DBL_TRUE_MIN; // May need a fallback
             break;
         case ATOM_BFLOAT16:
-            finfo_obj->bits = 16; finfo_obj->eps = 0.0078125; finfo_obj->max = 3.389531e+38;
-            finfo_obj->min = -3.389531e+38; finfo_obj->precision = 2; finfo_obj->resolution = 1e-2;
-            finfo_obj->nmant = 7; finfo_obj->nexp = 8;
-            finfo_obj->minexp = -126; finfo_obj->maxexp = 128;
+            finfo_obj->bits = 16; 
+            finfo_obj->eps = 0.0078125; 
+            finfo_obj->max = 3.389531e+38;
+            finfo_obj->min = -3.389531e+38; 
+            finfo_obj->precision = 2; 
+            finfo_obj->resolution = 1e-2;
+            finfo_obj->nmant = 7; 
+            finfo_obj->nexp = 8;
+            finfo_obj->minexp = -126; 
+            finfo_obj->maxexp = 128;
             finfo_obj->epsneg = 0.0078125 / 2.0; // eps / 2
             finfo_obj->machep = -7;
             finfo_obj->negep = -8;
