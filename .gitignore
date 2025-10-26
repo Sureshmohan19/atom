@@ -1,16 +1,33 @@
-# Python virtual environment
-.venv/
-.venv-old/
-
-# Python build artifacts
-build/
-dist/
-*.egg-info/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 *.so
-*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
 
-# macOS specific files
-.DS_Store
+# Virtual environments
+.venv/
+venv/
+ENV/
 
-# IDE configuration
+# Bazel
+bazel-*
+.bazel*
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files (optional)
+test_*.py

@@ -1,0 +1,42 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_binary")
+
+cc_library(
+    name = "atom_core",
+    srcs = [
+        "atom_conversions.c",
+        "atom_types.c",
+        "dtype_object.c",
+    ],
+    hdrs = [
+        "atom_conversions.h",
+        "atom_types.h",
+        "dtype_object.h",
+    ],
+    # No absolute include paths here
+    deps = [
+        "@python_314//:python",
+        "@numpy_headers//:numpy",
+    ],
+    copts = ["-fPIC"],
+    linkopts = ["-undefined", "dynamic_lookup"],
+    visibility = ["//visibility:public"],
+)
+
+# Python extension module
+cc_binary(
+    name = "atom.so",
+    srcs = ["atom_module.c"],
+    deps = [":atom_core"],
+    copts = ["-fPIC"],
+    linkshared = True,
+    linkopts = select({
+        "@platforms//os:macos": ["-undefined", "dynamic_lookup"],
+        "//conditions:default": [],
+    }),
+)
+
+cc_binary(
+    name = "atom_test",
+    srcs = ["main.c"],
+    deps = [":atom_core"],
+)
